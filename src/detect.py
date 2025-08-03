@@ -120,11 +120,12 @@ def export_excel():
 
     output.seek(0)
     return send_file(
-        output,
-        as_attachment=True,
-        download_name='detected_buildings.xlsx',
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+    output,
+    as_attachment=True,
+    download_name='detected_buildings.xlsx',
+    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    conditional=False
+)
 
 @app.route('/export-geojson', methods=['POST'])
 def export_geojson():
