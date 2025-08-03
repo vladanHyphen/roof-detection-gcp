@@ -1,0 +1,9 @@
+torch
+torchvision
+rasterio
+geopandas
+shapely
+opencv-python
+pillow
+numpy
+scikit-image
