@@ -5,3 +5,4 @@ RUN pip install -r requirements.txt
 COPY src/ src/
 COPY data/ data/
 ENTRYPOINT ["python", "src/detect.py"]
+

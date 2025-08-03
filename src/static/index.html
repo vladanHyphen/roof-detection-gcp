@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Roof Detection Tool</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
+  />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 10px;
+    }
+    #controls {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .col {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    label {
+      font-weight: bold;
+    }
+    input[type="number"] {
+      width: 140px;
+      padding: 4px;
+      font-size: 14px;
+    }
+    input[type="range"] {
+      width: 200px;
+    }
+    button {
+      padding: 6px 14px;
+      margin-left: 10px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    #map {
+      height: 75vh;
+      width: 100%;
+      border: 1px solid #ccc;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <div class="col" id="col1">
+      <label for="minLon">Min Longitude (left)</label>
+      <input id="minLon" type="number" step="0.000001" value="28.253" />
+      <label for="minLat">Min Latitude (bottom)</label>
+      <input id="minLat" type="number" step="0.000001" value="-25.718" />
+    </div>
+    <div class="col" id="col2">
+      <label for="maxLon">Max Longitude (right)</label>
+      <input id="maxLon" type="number" step="0.000001" value="28.257" />
+      <label for="maxLat">Max Latitude (top)</label>
+      <input id="maxLat" type="number" step="0.000001" value="-25.715" />
+    </div>
+    <div class="col" style="align-items: flex-start; margin-left: 20px;">
+      <label for="zoomSlider">Zoom Level</label>
+      <input id="zoomSlider" type="range" min="15" max="20" value="18" />
+      <span id="zoomValue" style="font-weight: normal;">18</span>
+    </div>
+    <button id="btnDownloadMap">Download Satellite Image</button>
+    <button id="btnDetectBuildings">Detect Buildings</button>
+    <button id="btnExportExcel" disabled>Export Excel</button>
+    <button id="btnExportGeoJSON" disabled>Export GeoJSON</button>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+  <script>
+    // Initialize map centered on default bbox center
+    const map = L.map('map').setView([-25.7165, 28.255], 18);
+
+    // Base OpenStreetMap layer
+    const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(map);
+
+    // Esri World Imagery layer (not added by default)
+    const esriLayer = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 19 }
+    );
+
+    let imageryLayer = null;
+    let roofsLayer = L.geoJSON(null, {
+      style: { color: 'red' },
+      onEachFeature: function(feature, layer) {
+        let coordsText = '';
+        if (feature.geometry.type === 'Polygon') {
+          feature.geometry.coordinates[0].forEach(coord => {
+            coordsText += coord[1].toFixed(5) + ', ' + coord[0].toFixed(5) + '<br>';
+          });
+        }
+        const label = feature.properties?.label || 'Roof';
+        layer.bindPopup(`<b>${label}</b><br>Coordinates:<br>${coordsText}`);
+      }
+    }).addTo(map);
+
+    let lastGeoJson = null;
+
+    function getBBox() {
+      return {
+        minLat: parseFloat(document.getElementById('minLat').value),
+        maxLat: parseFloat(document.getElementById('maxLat').value),
+        minLon: parseFloat(document.getElementById('minLon').value),
+        maxLon: parseFloat(document.getElementById('maxLon').value),
+      };
+    }
+
+    function fitMapToBBox() {
+      const bbox = getBBox();
+      const bounds = L.latLngBounds([bbox.minLat, bbox.minLon], [bbox.maxLat, bbox.maxLon]);
+      map.fitBounds(bounds);
+      document.getElementById('zoomSlider').value = map.getZoom();
+      document.getElementById('zoomValue').innerText = map.getZoom();
+    }
+
+    const zoomSlider = document.getElementById('zoomSlider');
+    const zoomValue = document.getElementById('zoomValue');
+    zoomSlider.oninput = function() {
+      zoomValue.innerText = this.value;
+      map.setZoom(this.value);
+    };
+
+    map.on('zoomend', function() {
+      zoomSlider.value = map.getZoom();
+      zoomValue.innerText = map.getZoom();
+    });
+
+    document.getElementById('btnDownloadMap').onclick = () => {
+      if (imageryLayer) {
+        map.removeLayer(imageryLayer);
+      }
+      imageryLayer = esriLayer.addTo(map);
+      fitMapToBBox();
+      alert('Satellite imagery loaded for the bounding box.');
+    };
+
+    document.getElementById('btnDetectBuildings').onclick = () => {
+      const bbox = getBBox();
+      fetch('/detect-buildings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bbox: [bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon] }),
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.geojson) {
+          roofsLayer.clearLayers();
+          roofsLayer.addData(data.geojson);
+          lastGeoJson = data.geojson;
+          document.getElementById('btnExportExcel').disabled = false;
+          document.getElementById('btnExportGeoJSON').disabled = false;
+          alert('Building detection complete!');
+        } else {
+          alert('No detection data received.');
+        }
+      })
+      .catch(err => alert('Error detecting buildings: ' + err));
+    };
+
+    document.getElementById('btnExportExcel').onclick = () => {
+      if (!lastGeoJson) return;
+      fetch('/export-excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ geojson: lastGeoJson }),
+      })
+      .then(response => response.blob())
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'detected_buildings.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      })
+      .catch(err => alert('Export failed: ' + err));
+    };
+
+    document.getElementById('btnExportGeoJSON').onclick = () => {
+      if (!lastGeoJson) return;
+      fetch('/export-geojson', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ geojson: lastGeoJson }),
+      })
+      .then(response => response.blob())
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'detected_buildings.geojson';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      })
+      .catch(err => alert('Export GeoJSON failed: ' + err));
+    };
+
+    fitMapToBBox();
+  </script>
+</body>
+</html>
+
